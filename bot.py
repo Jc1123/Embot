@@ -21,13 +21,18 @@ class Bot(commands.Bot):
 
   async def setup_hook(self):
     await self.tree.sync()
+    print("Comandos slash sincronizados com sucesso!")
+
 
 client = Bot()
+
 
 @client.event
 async def on_ready():
   print(f"Bot conectado com sucesso como {client.user}")
 
+
+# --- SISTEMA DE VERIFICAÇÃO ---
 class FormularioVerificacao(discord.ui.Modal, title="Painel de Verificação"):
   nome_minecraft = discord.ui.TextInput(
       label="Digite o seu nome do Minecraft:",
@@ -89,6 +94,9 @@ async def verificar(interaction: discord.Interaction):
 
   await interaction.response.send_modal(FormularioVerificacao())
 
+
+# --- SISTEMA DE SORTEIOS ---
+
 sorteios_ativos = {}
 
 
@@ -120,11 +128,14 @@ def gerar_id_criptografado(numero_sorteio: int) -> str:
   hash_obj = hashlib.sha256(texto_base.encode("utf-8"))
   return hash_obj.hexdigest()[:10]
 
+
+# Botão de Participar com contagem dinâmica
 class BotaoParticipar(discord.ui.View):
 
-  def __init__(self):
+  def __init__(self, organizador_mention: str):
     super().__init__(timeout=None)
     self.participantes = set()
+    self.organizador_mention = organizador_mention
 
   @discord.ui.button(
       label="Participar",
@@ -141,11 +152,29 @@ class BotaoParticipar(discord.ui.View):
       )
     else:
       self.participantes.add(interaction.user.id)
+      
+      # Responde primeiro para evitar erro de timeout na interação
       await interaction.response.send_message(
           "✅ Sua participação foi registrada com sucesso!", ephemeral=True
       )
+      
+      # Em seguida, atualiza o Embed com o novo número de participantes
+      embed = interaction.message.embeds[0]
+      embed.set_field_at(
+          0,
+          name="",
+          value=(
+              f"Organizado por: {self.organizador_mention}\n"
+              f"Número de participantes: {len(self.participantes)}\n"
+              "Terminará em breve..."
+          ),
+          inline=False,
+      )
+      await interaction.message.edit(embed=embed)
+
 
 contador_sorteios = 0
+
 
 async def finalizar_sorteio_logica(
     id_cripto: str, forcar_vencedores: bool = True
@@ -168,12 +197,16 @@ async def finalizar_sorteio_logica(
 
   data_fim = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")
   lista_participantes = list(view.participantes)
+  
+  # Calcula o mínimo de participantes exigido pela regra
+  min_participantes = 3 if ganhadores == 1 else ganhadores * 2
 
   embed_final = discord.Embed(
       title=title, description=desc, color=discord.Color.from_rgb(52, 235, 119)
   )
 
-  if forcar_vencedores and len(lista_participantes) > 0:
+  # Checa se bateu a meta de participantes
+  if forcar_vencedores and len(lista_participantes) >= min_participantes:
     qtd_vencedores = min(ganhadores, len(lista_participantes))
     vencedores_ids = random.sample(lista_participantes, qtd_vencedores)
     mencoes_vencedores = ", ".join([f"<@{uid}>" for uid in vencedores_ids])
@@ -181,8 +214,9 @@ async def finalizar_sorteio_logica(
     embed_final.add_field(
         name="",
         value=(
-            f"Vencedores: {mencoes_vencedores}\nOrganizado por:"
-            f" {organizador.mention}"
+            f"Vencedores: {mencoes_vencedores}\n"
+            f"Organizado por: {organizador.mention}\n"
+            f"Número de participantes: {len(lista_participantes)}"
         ),
         inline=False,
     )
@@ -199,12 +233,16 @@ async def finalizar_sorteio_logica(
     await canal.send(
         f"Sorteio finalizado. Parabéns aos vencedores! 🎉 ({mencoes_vencedores})"
     )
+    
   else:
+    # Caso não atinja a proporção de 2:1 ou os 3 mínimos
+    embed_final.color = discord.Color.from_rgb(200, 200, 200) # Cor cinza
     embed_final.add_field(
         name="",
         value=(
-            f"Vencedores: *Nenhum participante*\nOrganizado por:"
-            f" {organizador.mention}"
+            f"Vencedores: *Cancelado por falta de participantes*\n"
+            f"Organizado por: {organizador.mention}\n"
+            f"Número de participantes: {len(lista_participantes)}"
         ),
         inline=False,
     )
@@ -219,18 +257,22 @@ async def finalizar_sorteio_logica(
       pass
 
     await canal.send(
-        "Sorteio finalizado, mas infelizmente não houve participantes."
+        f"Sorteio finalizado, mas não atingiu o número mínimo de participantes "
+        f"(mínimo necessário: {min_participantes})."
     )
 
   del sorteios_ativos[id_cripto]
+
 
 @app_commands.default_permissions(administrator=True)
 class SorteioGroup(app_commands.Group):
   pass
 
+
 sorteio_group = SorteioGroup(
     name="sorteio", description="Gerencia os sorteios do servidor"
 )
+
 
 @sorteio_group.command(
     name="criar", description="Cria um novo sorteio interativo no canal."
@@ -277,14 +319,15 @@ async def criar(
   embed.add_field(
       name="",
       value=(
-          f"Organizado por: {interaction.user.mention}\nID do Sorteio:"
-          f" `{id_cripto}`\nTerminará em breve..."
+          f"Organizado por: {interaction.user.mention}\n"
+          f"Número de participantes: 0\n"
+          "Terminará em breve..."
       ),
       inline=False,
   )
   embed.set_footer(text=f"Começado em • {data_inicio} | ID: {id_cripto}")
 
-  view = BotaoParticipar()
+  view = BotaoParticipar(interaction.user.mention)
 
   await interaction.response.send_message(
       f"🎉 Sorteio criado com sucesso! ID: `{id_cripto}`", ephemeral=True
@@ -310,6 +353,7 @@ async def criar(
       "ganhadores": ganhadores,
       "canal": interaction.channel,
   }
+
 
 @sorteio_group.command(
     name="excluir",
@@ -341,6 +385,7 @@ async def excluir(interaction: discord.Interaction, id: str):
       ephemeral=True,
   )
 
+
 @sorteio_group.command(
     name="finalizar",
     description=(
@@ -363,8 +408,10 @@ async def finalizar(interaction: discord.Interaction, id: str):
   )
   await finalizar_sorteio_logica(id_limpo, forcar_vencedores=True)
 
+
 client.tree.add_command(sorteio_group)
 
+# --- EXECUÇÃO DO BOT ---
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 client.run(TOKEN)
