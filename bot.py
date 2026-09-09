@@ -21,18 +21,13 @@ class Bot(commands.Bot):
 
   async def setup_hook(self):
     await self.tree.sync()
-    print("Comandos slash sincronizados com sucesso!")
-
 
 client = Bot()
-
 
 @client.event
 async def on_ready():
   print(f"Bot conectado com sucesso como {client.user}")
 
-
-# --- SISTEMA DE VERIFICAÇÃO ---
 class FormularioVerificacao(discord.ui.Modal, title="Painel de Verificação"):
   nome_minecraft = discord.ui.TextInput(
       label="Digite o seu nome do Minecraft:",
@@ -94,11 +89,6 @@ async def verificar(interaction: discord.Interaction):
 
   await interaction.response.send_modal(FormularioVerificacao())
 
-
-# --- SISTEMA DE SORTEIOS ---
-
-# Dicionário para armazenar os sorteios ativos no momento
-# Chave: ID criptografado | Valor: Informações do sorteio (task, mensagem, view, etc.)
 sorteios_ativos = {}
 
 
@@ -130,7 +120,6 @@ def gerar_id_criptografado(numero_sorteio: int) -> str:
   hash_obj = hashlib.sha256(texto_base.encode("utf-8"))
   return hash_obj.hexdigest()[:10]
 
-
 class BotaoParticipar(discord.ui.View):
 
   def __init__(self):
@@ -156,11 +145,8 @@ class BotaoParticipar(discord.ui.View):
           "✅ Sua participação foi registrada com sucesso!", ephemeral=True
       )
 
-
 contador_sorteios = 0
 
-
-# Função interna que lida com o encerramento normal ou forçado do sorteio
 async def finalizar_sorteio_logica(
     id_cripto: str, forcar_vencedores: bool = True
 ):
@@ -177,7 +163,6 @@ async def finalizar_sorteio_logica(
   ganhadores = dados["ganhadores"]
   canal = dados["canal"]
 
-  # Cancela o temporizador de espera se ainda estiver rodando
   if not task.done():
     task.cancel()
 
@@ -237,19 +222,15 @@ async def finalizar_sorteio_logica(
         "Sorteio finalizado, mas infelizmente não houve participantes."
     )
 
-  # Remove dos ativos
   del sorteios_ativos[id_cripto]
 
-
-# Grupo de comandos /sorteio
+@app_commands.default_permissions(administrator=True)
 class SorteioGroup(app_commands.Group):
   pass
-
 
 sorteio_group = SorteioGroup(
     name="sorteio", description="Gerencia os sorteios do servidor"
 )
-
 
 @sorteio_group.command(
     name="criar", description="Cria um novo sorteio interativo no canal."
@@ -310,7 +291,6 @@ async def criar(
   )
   mensagem_sorteio = await interaction.channel.send(embed=embed, view=view)
 
-  # Função de contagem regressiva em background
   async def temporizador_sorteio():
     try:
       await asyncio.sleep(segundos)
@@ -320,7 +300,6 @@ async def criar(
 
   task = asyncio.create_task(temporizador_sorteio())
 
-  # Salva o sorteio no dicionário global
   sorteios_ativos[id_cripto] = {
       "task": task,
       "mensagem": mensagem_sorteio,
@@ -331,7 +310,6 @@ async def criar(
       "ganhadores": ganhadores,
       "canal": interaction.channel,
   }
-
 
 @sorteio_group.command(
     name="excluir",
@@ -348,16 +326,13 @@ async def excluir(interaction: discord.Interaction, id: str):
     return
 
   dados = sorteios_ativos[id_limpo]
-  # Cancela o timer
   dados["task"].cancel()
 
   try:
-    # Apaga a mensagem do canal
     await dados["mensagem"].delete()
   except Exception:
     pass
 
-  # Remove da lista
   del sorteios_ativos[id_limpo]
 
   await interaction.response.send_message(
@@ -365,7 +340,6 @@ async def excluir(interaction: discord.Interaction, id: str):
       " sucesso.",
       ephemeral=True,
   )
-
 
 @sorteio_group.command(
     name="finalizar",
@@ -387,13 +361,10 @@ async def finalizar(interaction: discord.Interaction, id: str):
   await interaction.response.send_message(
       f"🏁 Finalizando o sorteio `{id_limpo}` antecipadamente...", ephemeral=True
   )
-  # Executa a lógica de encerramento escolhendo os vencedores
   await finalizar_sorteio_logica(id_limpo, forcar_vencedores=True)
-
 
 client.tree.add_command(sorteio_group)
 
-# --- EXECUÇÃO DO BOT ---
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 client.run(TOKEN)
