@@ -9,7 +9,7 @@ intents.members = True
 intents.message_content = True
 
 
-class MeuBot(commands.Bot):
+class Bot(commands.Bot):
 
   def __init__(self):
     super().__init__(command_prefix="!", intents=intents)
@@ -19,7 +19,7 @@ class MeuBot(commands.Bot):
     print("Comandos slash sincronizados com sucesso!")
 
 
-client = MeuBot ()
+client = Bot ()
 
 
 @client.event
