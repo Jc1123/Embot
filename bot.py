@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import hashlib
 import os
 import random
 import re
@@ -31,7 +32,7 @@ async def on_ready():
   print(f"Bot conectado com sucesso como {client.user}")
 
 
-# --- SISTEMA DE VERIFICAÇÃO (Já existente) ---
+# --- SISTEMA DE VERIFICAÇÃO ---
 class FormularioVerificacao(discord.ui.Modal, title="Painel de Verificação"):
   nome_minecraft = discord.ui.TextInput(
       label="Digite o seu nome do Minecraft:",
@@ -96,7 +97,11 @@ async def verificar(interaction: discord.Interaction):
 
 # --- SISTEMA DE SORTEIOS ---
 
-# Função para converter o formato de tempo (ex: 2d, 30m, 1h) em segundos
+# Dicionário para armazenar os sorteios ativos no momento
+# Chave: ID criptografado | Valor: Informações do sorteio (task, mensagem, view, etc.)
+sorteios_ativos = {}
+
+
 def converter_tempo(tempo_str: str) -> int:
   match = re.match(r"^(\d+)([a-zA-Z])$", tempo_str.strip())
   if not match:
@@ -106,12 +111,12 @@ def converter_tempo(tempo_str: str) -> int:
   unidade = match.group(2)
 
   multiplicadores = {
-      "s": 1,  # Segundos
-      "m": 60,  # Minutos
-      "h": 3600,  # Horas
-      "d": 86400,  # Dias
-      "M": 2592000,  # Meses (aprox. 30 dias)
-      "a": 31536000,  # Anos (aprox. 365 dias)
+      "s": 1,
+      "m": 60,
+      "h": 3600,
+      "d": 86400,
+      "M": 2592000,
+      "a": 31536000,
   }
 
   if unidade not in multiplicadores:
@@ -120,12 +125,17 @@ def converter_tempo(tempo_str: str) -> int:
   return quantidade * multiplicadores[unidade]
 
 
-# Botão de Participar do Sorteio
+def gerar_id_criptografado(numero_sorteio: int) -> str:
+  texto_base = f"{numero_sorteio}-Embrapa"
+  hash_obj = hashlib.sha256(texto_base.encode("utf-8"))
+  return hash_obj.hexdigest()[:10]
+
+
 class BotaoParticipar(discord.ui.View):
 
   def __init__(self):
-    super().__init__(timeout=None)  # Mantém o botão ativo permanentemente
-    self.participantes = set()  # Armazena os IDs para evitar duplicadas
+    super().__init__(timeout=None)
+    self.participantes = set()
 
   @discord.ui.button(
       label="Participar",
@@ -145,6 +155,90 @@ class BotaoParticipar(discord.ui.View):
       await interaction.response.send_message(
           "✅ Sua participação foi registrada com sucesso!", ephemeral=True
       )
+
+
+contador_sorteios = 0
+
+
+# Função interna que lida com o encerramento normal ou forçado do sorteio
+async def finalizar_sorteio_logica(
+    id_cripto: str, forcar_vencedores: bool = True
+):
+  if id_cripto not in sorteios_ativos:
+    return
+
+  dados = sorteios_ativos[id_cripto]
+  task = dados["task"]
+  mensagem = dados["mensagem"]
+  view = dados["view"]
+  title = dados["title"]
+  desc = dados["desc"]
+  organizador = dados["organizador"]
+  ganhadores = dados["ganhadores"]
+  canal = dados["canal"]
+
+  # Cancela o temporizador de espera se ainda estiver rodando
+  if not task.done():
+    task.cancel()
+
+  data_fim = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")
+  lista_participantes = list(view.participantes)
+
+  embed_final = discord.Embed(
+      title=title, description=desc, color=discord.Color.from_rgb(52, 235, 119)
+  )
+
+  if forcar_vencedores and len(lista_participantes) > 0:
+    qtd_vencedores = min(ganhadores, len(lista_participantes))
+    vencedores_ids = random.sample(lista_participantes, qtd_vencedores)
+    mencoes_vencedores = ", ".join([f"<@{uid}>" for uid in vencedores_ids])
+
+    embed_final.add_field(
+        name="",
+        value=(
+            f"Vencedores: {mencoes_vencedores}\nOrganizado por:"
+            f" {organizador.mention}"
+        ),
+        inline=False,
+    )
+    embed_final.set_footer(text=f"Terminado em • {data_fim} | ID: {id_cripto}")
+
+    for child in view.children:
+      child.disabled = True
+
+    try:
+      await mensagem.edit(embed=embed_final, view=view)
+    except Exception:
+      pass
+
+    await canal.send(
+        f"Sorteio finalizado. Parabéns aos vencedores! 🎉 ({mencoes_vencedores})"
+    )
+  else:
+    embed_final.add_field(
+        name="",
+        value=(
+            f"Vencedores: *Nenhum participante*\nOrganizado por:"
+            f" {organizador.mention}"
+        ),
+        inline=False,
+    )
+    embed_final.set_footer(text=f"Terminado em • {data_fim} | ID: {id_cripto}")
+
+    for child in view.children:
+      child.disabled = True
+
+    try:
+      await mensagem.edit(embed=embed_final, view=view)
+    except Exception:
+      pass
+
+    await canal.send(
+        "Sorteio finalizado, mas infelizmente não houve participantes."
+    )
+
+  # Remove dos ativos
+  del sorteios_ativos[id_cripto]
 
 
 # Grupo de comandos /sorteio
@@ -173,7 +267,11 @@ async def criar(
     time: str,
     ganhadores: int,
 ):
-  # Valida o tempo informado
+  global contador_sorteios
+  contador_sorteios += 1
+
+  id_cripto = gerar_id_criptografado(contador_sorteios)
+
   segundos = converter_tempo(time)
   if not segundos or segundos <= 0:
     await interaction.response.send_message(
@@ -192,87 +290,107 @@ async def criar(
 
   data_inicio = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-  # Cria o Embed inicial do Sorteio
   embed = discord.Embed(
       title=title, description=desc, color=discord.Color.from_rgb(235, 64, 52)
   )
   embed.add_field(
       name="",
       value=(
-          f"Organizado por: {interaction.user.mention}\nTerminará em breve..."
+          f"Organizado por: {interaction.user.mention}\nID do Sorteio:"
+          f" `{id_cripto}`\nTerminará em breve..."
       ),
       inline=False,
   )
-  embed.set_footer(text=f"Começado em • {data_inicio}")
+  embed.set_footer(text=f"Começado em • {data_inicio} | ID: {id_cripto}")
 
   view = BotaoParticipar()
 
-  # Responde o comando criando a mensagem do sorteio no canal
   await interaction.response.send_message(
-      "🎉 Sorteio iniciado com sucesso!", ephemeral=True
+      f"🎉 Sorteio criado com sucesso! ID: `{id_cripto}`", ephemeral=True
   )
   mensagem_sorteio = await interaction.channel.send(embed=embed, view=view)
 
-  # Aguarda o tempo estipulado rodando em segundo plano
-  await asyncio.sleep(segundos)
+  # Função de contagem regressiva em background
+  async def temporizador_sorteio():
+    try:
+      await asyncio.sleep(segundos)
+      await finalizar_sorteio_logica(id_cripto, forcar_vencedores=True)
+    except asyncio.CancelledError:
+      pass
 
-  # --- FASE DE ENCERRAMENTO DO SORTEIO ---
-  data_fim = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")
-  lista_participantes = list(view.participantes)
+  task = asyncio.create_task(temporizador_sorteio())
 
-  embed_final = discord.Embed(
-      title=title, description=desc, color=discord.Color.from_rgb(52, 235, 119)
+  # Salva o sorteio no dicionário global
+  sorteios_ativos[id_cripto] = {
+      "task": task,
+      "mensagem": mensagem_sorteio,
+      "view": view,
+      "title": title,
+      "desc": desc,
+      "organizador": interaction.user,
+      "ganhadores": ganhadores,
+      "canal": interaction.channel,
+  }
+
+
+@sorteio_group.command(
+    name="excluir",
+    description="Exclui um sorteio em andamento sem sortear ganhadores.",
+)
+@app_commands.describe(id="ID do sorteio que deseja excluir")
+async def excluir(interaction: discord.Interaction, id: str):
+  id_limpo = id.strip()
+
+  if id_limpo not in sorteios_ativos:
+    await interaction.response.send_message(
+        "❌ Nenhum sorteio ativo foi encontrado com esse ID.", ephemeral=True
+    )
+    return
+
+  dados = sorteios_ativos[id_limpo]
+  # Cancela o timer
+  dados["task"].cancel()
+
+  try:
+    # Apaga a mensagem do canal
+    await dados["mensagem"].delete()
+  except Exception:
+    pass
+
+  # Remove da lista
+  del sorteios_ativos[id_limpo]
+
+  await interaction.response.send_message(
+      f"🗑️ O sorteio com ID `{id_limpo}` foi cancelado e excluído com"
+      " sucesso.",
+      ephemeral=True,
   )
 
-  if len(lista_participantes) > 0:
-    # Sorteia os vencedores de forma totalmente aleatória
-    qtd_vencedores = min(ganhadores, len(lista_participantes))
-    vencedores_ids = random.sample(lista_participantes, qtd_vencedores)
-    mencoes_vencedores = ", ".join([f"<@{uid}>" for uid in vencedores_ids])
 
-    embed_final.add_field(
-        name="",
-        value=(
-            f"Vencedores: {mencoes_vencedores}\nOrganizado por:"
-            f" {interaction.user.mention}"
-        ),
-        inline=False,
+@sorteio_group.command(
+    name="finalizar",
+    description=(
+        "Finaliza antecipadamente um sorteio em andamento e escolhe os"
+        " ganhadores."
+    ),
+)
+@app_commands.describe(id="ID do sorteio que deseja finalizar")
+async def finalizar(interaction: discord.Interaction, id: str):
+  id_limpo = id.strip()
+
+  if id_limpo not in sorteios_ativos:
+    await interaction.response.send_message(
+        "❌ Nenhum sorteio ativo foi encontrado com esse ID.", ephemeral=True
     )
-    embed_final.set_footer(text=f"Terminado em • {data_fim}")
+    return
 
-    # Desativa o botão para ninguém mais clicar
-    for child in view.children:
-      child.disabled = True
-
-    await mensagem_sorteio.edit(embed=embed_final, view=view)
-
-    # Mensagem de encerramento no chat
-    await interaction.channel.send(
-        f"Sorteio finalizado. Parabéns aos vencedores! 🎉 ({mencoes_vencedores})"
-    )
-
-  else:
-    # Caso ninguém tenha participado
-    embed_final.add_field(
-        name="",
-        value=(
-            f"Vencedores: *Nenhum participante*\nOrganizado por:"
-            f" {interaction.user.mention}"
-        ),
-        inline=False,
-    )
-    embed_final.set_footer(text=f"Terminado em • {data_fim}")
-
-    for child in view.children:
-      child.disabled = True
-
-    await mensagem_sorteio.edit(embed=embed_final, view=view)
-    await interaction.channel.send(
-        "Sorteio finalizado, mas infelizmente não houve participantes."
-    )
+  await interaction.response.send_message(
+      f"🏁 Finalizando o sorteio `{id_limpo}` antecipadamente...", ephemeral=True
+  )
+  # Executa a lógica de encerramento escolhendo os vencedores
+  await finalizar_sorteio_logica(id_limpo, forcar_vencedores=True)
 
 
-# Registra o grupo de comandos no bot principal
 client.tree.add_command(sorteio_group)
 
 # --- EXECUÇÃO DO BOT ---
