@@ -14,9 +14,10 @@ intents.members = True
 intents.message_content = True
 
 # ==============================================================================
-# CONFIGURAÇÕES E IDs CONSTANTES (Substitua pelos IDs reais do seu servidor)
+# CONFIGURAÇÕES E IDs CONSTANTES
 # ==============================================================================
 CARGO_VERIFICADO_ID = 1546935292450312202
+CARGO_NAO_VERIFICADO_ID = 1547044422913490964 # <-- NOVO CARGO ADICIONADO
 
 CARGOS_TORNEIO = {
     "Alquimista": 1541613339942330499,
@@ -92,6 +93,21 @@ async def on_ready():
     print(f"Bot conectado com sucesso como {client.user}")
 
 
+# <-- NOVO EVENTO: Adiciona o cargo quando o membro entra no servidor
+@client.event
+async def on_member_join(member):
+    cargo_nao_verificado = member.guild.get_role(CARGO_NAO_VERIFICADO_ID)
+    
+    if cargo_nao_verificado:
+        try:
+            await member.add_roles(cargo_nao_verificado)
+            print(f"[INFO] Cargo 'Não Verificado' adicionado ao novato {member.name}.")
+        except discord.Forbidden:
+            print(f"[ERRO] Sem permissão para dar o cargo 'Não Verificado' para {member.name}.")
+        except discord.HTTPException as e:
+            print(f"[ERRO] Falha HTTP ao adicionar cargo 'Não Verificado': {e}")
+
+
 # ==============================================================================
 # SISTEMA DE VERIFICAÇÃO E CARGOS DO TORNEIO (Agora usando IDs em vez de Nomes)
 # ==============================================================================
@@ -116,6 +132,9 @@ class MenuTorneio(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        # Evita timeout do Discord
+        await interaction.response.defer(ephemeral=True)
+        
         guild = interaction.guild
         member = interaction.user
         
@@ -123,7 +142,6 @@ class MenuTorneio(discord.ui.Select):
         cargos_falhos = []
 
         for cargo_nome in self.values:
-            # Busca o ID na constante do topo do arquivo em vez de pesquisar por string
             cargo_id = CARGOS_TORNEIO.get(cargo_nome)
             cargo = guild.get_role(cargo_id) if cargo_id else None
             
@@ -142,11 +160,12 @@ class MenuTorneio(discord.ui.Select):
 
         nomes_adicionados = ", ".join([c.name for c in cargos_encontrados])
         mensagem = f"✅ Sucesso! Você recebeu os seguintes cargos: **{nomes_adicionados}**"
-      
+     
         if cargos_falhos:
             mensagem += f"\n⚠️ Erro: Não encontrei os cargos {', '.join(cargos_falhos)} no servidor. Avise um Líder!"
 
-        await interaction.response.send_message(mensagem, ephemeral=True)
+        # Mudado de response.send_message para followup.send por causa do defer()
+        await interaction.followup.send(mensagem, ephemeral=True)
 
 
 class ViewTorneio(discord.ui.View):
@@ -168,8 +187,9 @@ class FormularioVerificacao(discord.ui.Modal, title="Painel de Verificação"):
         member = interaction.user
         nome_escolhido = self.nome_minecraft.value
 
-        # Busca pelo ID numérico
+        # Busca pelos IDs numéricos
         cargo_verificado = guild.get_role(CARGO_VERIFICADO_ID)
+        cargo_nao_verificado = guild.get_role(CARGO_NAO_VERIFICADO_ID) # <-- NOVO
 
         if not cargo_verificado:
             await interaction.response.send_message(
@@ -187,11 +207,14 @@ class FormularioVerificacao(discord.ui.Modal, title="Painel de Verificação"):
             print(f"[ERRO] Erro na API do Discord ao tentar mudar nick de {member.name}: {e}")
 
         try:
+            # <-- MODIFICADO: Adiciona o verificado E remove o não verificado
             await member.add_roles(cargo_verificado)
+            if cargo_nao_verificado and cargo_nao_verificado in member.roles:
+                await member.remove_roles(cargo_nao_verificado)
         except discord.Forbidden:
-            print(f"[AVISO] Sem permissão para entregar o cargo de verificado a {member.name}.")
+            print(f"[AVISO] Sem permissão para gerenciar os cargos de verificação de {member.name}.")
         except discord.HTTPException as e:
-            print(f"[ERRO] HTTP Exception ao entregar cargo a {member.name}: {e}")
+            print(f"[ERRO] HTTP Exception ao alterar cargos de {member.name}: {e}")
 
         await interaction.response.send_message(
             f"Tudo pronto, {member.mention}! Seu nick foi alterado para **{nome_escolhido}**.\n\n"
@@ -245,38 +268,39 @@ class BotaoParticipar(discord.ui.View):
         label="Participar", style=discord.ButtonStyle.primary, emoji="🎉", custom_id="botao_sorteio_participar"
     )
     async def participar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Evita o erro 404 de timeout do Discord
+        await interaction.response.defer(ephemeral=True)
+        
         msg_id = interaction.message.id
         user_id = interaction.user.id
         
         conn = sqlite3.connect("bot_database.db")
         c = conn.cursor()
         
-        # Localiza o id_cripto baseado no ID da mensagem onde o botão foi clicado
         c.execute("SELECT id_cripto, organizador_id FROM sorteios WHERE mensagem_id = ? AND ativo = 1", (msg_id,))
         row = c.fetchone()
         
         if not row:
             conn.close()
-            await interaction.response.send_message("❌ Este sorteio já acabou ou foi deletado!", ephemeral=True)
+            # Como usamos defer(), agora usamos followup para enviar mensagens ocultas
+            await interaction.followup.send("❌ Este sorteio já acabou ou foi deletado!", ephemeral=True)
             return
             
         id_cripto, organizador_id = row
         
-        # Tenta inserir o participante. Se já existir, a restrição UNIQUE lançará IntegrityError
         try:
             c.execute("INSERT INTO participantes (id_cripto, user_id) VALUES (?, ?)", (id_cripto, user_id))
             conn.commit()
         except sqlite3.IntegrityError:
             conn.close()
-            await interaction.response.send_message("Você já está participando deste sorteio!", ephemeral=True)
+            await interaction.followup.send("Você já está participando deste sorteio!", ephemeral=True)
             return
             
-        # Pega a nova contagem atualizada no DB
         c.execute("SELECT COUNT(*) FROM participantes WHERE id_cripto = ?", (id_cripto,))
         total_participantes = c.fetchone()[0]
         conn.close()
         
-        await interaction.response.send_message("✅ Sua participação foi registrada com sucesso!", ephemeral=True)
+        await interaction.followup.send("✅ Sua participação foi registrada com sucesso!", ephemeral=True)
         
         embed = interaction.message.embeds[0]
         embed.set_field_at(
