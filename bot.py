@@ -135,8 +135,18 @@ class DiscordBot(commands.Bot):
 
             self._persistent_views_registered = True
 
-        # Sincroniza slash commands
-        await self.tree.sync()
+        # Sincroniza slash commands com o servidor
+        guild = discord.Object(
+        id=1541112966265573376
+        )
+
+        self.tree.copy_global_to(
+         guild=guild
+        )
+
+        await self.tree.sync(
+          guild=guild
+        )
 
         # Inicia verificação automática
         self.check_giveaways.start()
