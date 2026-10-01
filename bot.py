@@ -12,7 +12,7 @@ from database.giveaways import GiveawayRepository
 from services.giveaway_service import GiveawayService
 from views.giveaway import GiveawayButtonView
 from views.tournament import TournamentView
-
+from commands.registration import RegistrationCommands
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,10 @@ class DiscordBot(commands.Bot):
             settings
         )
 
+        self.registration_commands = RegistrationCommands(
+            settings
+        )
+
         self._persistent_views_registered = False
 
         # Tratamento global de erros dos slash commands
@@ -77,6 +81,10 @@ class DiscordBot(commands.Bot):
         # Registra comandos
         self.verification_commands.register(
             self.tree
+        )
+
+        self.registration_commands.register(
+         self.tree
         )
 
         self.giveaway_commands.register(

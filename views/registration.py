@@ -1,0 +1,261 @@
+import logging
+
+import discord
+
+from config.settings import Settings
+
+
+logger = logging.getLogger(__name__)
+
+
+FARM_OPTIONS = {
+    "cana": "🎋 Farm de cana de açúcar",
+    "batata": "🥔 Farm de batata (EM CONSTRUÇÃO)",
+}
+
+
+class RegistrationModal(
+    discord.ui.Modal,
+    title="Registrar uso de farm"
+):
+
+    minecraft_name = discord.ui.TextInput(
+        label="Nick:",
+        placeholder="Insira seu nick no Minecraft",
+        min_length=1,
+        max_length=32,
+        required=True,
+    )
+
+    date_time = discord.ui.TextInput(
+        label="Data e hora:",
+        placeholder="DD/MM/YY HH:MM",
+        min_length=5,
+        max_length=16,
+        required=True,
+    )
+
+    def __init__(
+        self,
+        settings: Settings,
+        member: discord.Member,
+        farm: str
+    ):
+        super().__init__()
+
+        self.settings = settings
+        self.member = member
+        self.farm = farm
+
+        self.minecraft_name.default = (
+            member.display_name[:32]
+        )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ) -> None:
+
+        if (
+            interaction.guild is None
+            or not isinstance(
+                interaction.user,
+                discord.Member
+            )
+        ):
+            await interaction.response.send_message(
+                "❌ Esta ação só pode ser usada "
+                "dentro de um servidor.",
+                ephemeral=True
+            )
+            return
+
+        name = self.minecraft_name.value.strip()
+        date_time = self.date_time.value.strip()
+
+        if not name:
+            await interaction.response.send_message(
+                "❌ O nick não pode ficar vazio.",
+                ephemeral=True
+            )
+            return
+
+        if not date_time:
+            await interaction.response.send_message(
+                "❌ A data e hora não podem ficar vazias.",
+                ephemeral=True
+            )
+            return
+
+        channel = interaction.guild.get_channel(
+            self.settings.farm_channel_id
+        )
+
+        if channel is None:
+            await interaction.response.send_message(
+                "❌ O canal de registros de farm "
+                "não foi encontrado. Avise a equipe.",
+                ephemeral=True
+            )
+
+            logger.warning(
+                "Canal de farms não encontrado: %s",
+                self.settings.farm_channel_id
+            )
+
+            return
+
+        if not isinstance(
+            channel,
+            discord.TextChannel
+        ):
+            await interaction.response.send_message(
+                "❌ O canal configurado para os registros "
+                "de farm não é um canal de texto válido.",
+                ephemeral=True
+            )
+            return
+
+        message = (
+            "# Uso de farm registrada\n"
+            f"**Membro:** {self.member.mention}\n"
+            f"**Farm utilizada:** {self.farm}\n"
+            f"**Horário:** {date_time}\n\n"
+            "A Farm será utilizada pelo jogador no horário acima. "
+            "Caso não seja você que registrou a farm, "
+            "**não utilize a farm**."
+        )
+
+        try:
+            await channel.send(message)
+
+        except discord.Forbidden:
+            logger.warning(
+                "Sem permissão para enviar mensagens "
+                "no canal de farms %s.",
+                channel.id
+            )
+
+            await interaction.response.send_message(
+                "❌ Não tenho permissão para enviar "
+                "mensagens no canal de farms.",
+                ephemeral=True
+            )
+            return
+
+        except discord.HTTPException:
+            logger.exception(
+                "Erro HTTP ao registrar uso de farm."
+            )
+
+            await interaction.response.send_message(
+                "❌ Ocorreu um erro ao registrar o uso "
+                "da farm. Tente novamente.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            (
+                "✅ **Uso de farm registrado com sucesso!**\n\n"
+                f"**Farm:** {self.farm}\n"
+                f"**Horário:** {date_time}"
+            ),
+            ephemeral=True
+        )
+
+
+class FarmSelect(
+    discord.ui.Select
+):
+
+    def __init__(
+        self,
+        settings: Settings,
+        member: discord.Member
+    ):
+        self.settings = settings
+        self.member = member
+
+        options = [
+            discord.SelectOption(
+                label="Farm de cana de açúcar",
+                value="cana",
+                emoji="🎋",
+                description="Registrar uso da farm de cana."
+            ),
+            discord.SelectOption(
+                label="Farm de batata (EM CONSTRUÇÃO)",
+                value="batata",
+                emoji="🥔",
+                description="Esta farm ainda está em construção.",
+                default=False
+            ),
+        ]
+
+        super().__init__(
+            placeholder="Selecione uma farm...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ) -> None:
+
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message(
+                "❌ Este menu não pertence a você.",
+                ephemeral=True
+            )
+            return
+
+        selected = self.values[0]
+
+        if selected == "batata":
+            await interaction.response.send_message(
+                "🥔 **Farm de batata** está em construção "
+                "e ainda não pode ser utilizada.",
+                ephemeral=True
+            )
+            return
+
+        farm = FARM_OPTIONS.get(selected)
+
+        if farm is None:
+            await interaction.response.send_message(
+                "❌ Farm inválida.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            RegistrationModal(
+                self.settings,
+                self.member,
+                farm
+            )
+        )
+
+
+class FarmSelectionView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        settings: Settings,
+        member: discord.Member
+    ):
+        super().__init__(
+            timeout=120
+        )
+
+        self.add_item(
+            FarmSelect(
+                settings,
+                member
+            )
+        )

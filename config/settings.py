@@ -16,6 +16,8 @@ class Settings:
     verified_role_id: int = 1546935292450312202
     unverified_role_id: int = 1547044422913490964
 
+    farm_channel_id: int = 1546568509402775716
+
     @classmethod
     def from_env(cls) -> "Settings":
         token = os.getenv("DISCORD_TOKEN")
