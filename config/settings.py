@@ -18,6 +18,17 @@ class Settings:
 
     farm_channel_id: int = 1546568509402775716
 
+    # Configurações da Farm de Cana de Açúcar
+    farm_cana_warp: str = "/go FarmEPA"
+    farm_cana_password: str = "kind"
+
+    # Configurações da Farm de Batata
+    # Quando a farm estiver pronta, basta alterar:
+    # farm_batata_indisponivel = False
+    farm_batata_warp: str = "/go FarmBatata"
+    farm_batata_password: str = "SENHA_AQUI"
+    farm_batata_indisponivel: bool = True
+
     @classmethod
     def from_env(cls) -> "Settings":
         token = os.getenv("DISCORD_TOKEN")

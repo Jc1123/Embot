@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 FARM_OPTIONS = {
     "cana": "🎋 Farm de cana de açúcar",
-    "batata": "🥔 Farm de batata (EM CONSTRUÇÃO)",
+    "batata": "🥔 Farm de batata",
 }
 
 
@@ -155,14 +155,89 @@ class RegistrationModal(
             )
             return
 
+        # Envia as informações de acesso por DM
+        try:
+            if self.farm == FARM_OPTIONS["cana"]:
+                await self._send_access_dm(
+                    interaction,
+                    farm_name="🎋 Farm de cana de açúcar",
+                    warp=self.settings.farm_cana_warp,
+                    password=self.settings.farm_cana_password
+                )
+
+            elif self.farm == FARM_OPTIONS["batata"]:
+
+                if self.settings.farm_batata_indisponivel:
+                    await self._send_potato_unavailable_dm(
+                        interaction
+                    )
+
+                else:
+                    await self._send_access_dm(
+                        interaction,
+                        farm_name="🥔 Farm de batata",
+                        warp=self.settings.farm_batata_warp,
+                        password=self.settings.farm_batata_password
+                    )
+
+        except discord.Forbidden:
+            logger.info(
+                "Não foi possível enviar DM para %s "
+                "(DMs provavelmente desativadas).",
+                self.member.id
+            )
+
+        except discord.HTTPException:
+            logger.exception(
+                "Erro HTTP ao enviar DM para %s.",
+                self.member.id
+            )
+
         await interaction.response.send_message(
             (
                 "✅ **Uso de farm registrado com sucesso!**\n\n"
                 f"**Farm:** {self.farm}\n"
-                f"**Horário:** {date_time}"
+                f"**Horário:** {date_time}\n\n"
+                "🔐 As informações de acesso foram enviadas "
+                "no seu privado."
             ),
             ephemeral=True
         )
+
+    async def _send_access_dm(
+        self,
+        interaction: discord.Interaction,
+        farm_name: str,
+        warp: str,
+        password: str
+    ) -> None:
+
+        message = (
+            "🔐 **Dados de acesso da farm**\n\n"
+            f"**Farm:** {farm_name}\n"
+            f"**Warp:** `{warp}`\n"
+            f"**Senha:** `{password}`\n\n"
+            "⚠️ Não compartilhe essas informações."
+        )
+
+        await self.member.send(message)
+
+    async def _send_potato_unavailable_dm(
+        self,
+        interaction: discord.Interaction
+    ) -> None:
+
+        message = (
+            "Olá, a farm de batata está "
+            "**indisponível no momento**.\n\n"
+            "Atualmente, temos apenas a farm de cana de açúcar, "
+            "verifique se ninguém está utilizando ela e utilize "
+            "o comando `/registrar` e escolha: "
+            "**Farm de cana de açúcar**.\n\n"
+            "Atenciosamente, Vilaggergamerbr."
+        )
+
+        await self.member.send(message)
 
 
 class FarmSelect(
@@ -188,8 +263,7 @@ class FarmSelect(
                 label="Farm de batata (EM CONSTRUÇÃO)",
                 value="batata",
                 emoji="🥔",
-                description="Esta farm ainda está em construção.",
-                default=False
+                description="Farm atualmente indisponível."
             ),
         ]
 
@@ -213,14 +287,6 @@ class FarmSelect(
             return
 
         selected = self.values[0]
-
-        if selected == "batata":
-            await interaction.response.send_message(
-                "🥔 **Farm de batata** está em construção "
-                "e ainda não pode ser utilizada.",
-                ephemeral=True
-            )
-            return
 
         farm = FARM_OPTIONS.get(selected)
 

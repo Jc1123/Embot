@@ -13,6 +13,7 @@ from services.giveaway_service import GiveawayService
 from views.giveaway import GiveawayButtonView
 from views.tournament import TournamentView
 from commands.registration import RegistrationCommands
+from views.registration import FarmSelectionView
 
 logger = logging.getLogger(__name__)
 
