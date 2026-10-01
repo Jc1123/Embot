@@ -2,15 +2,18 @@ import discord
 from discord import app_commands
 
 from config.settings import Settings
+from database.farms import FarmRepository
 from views.registration import FarmSelectionView
 
 
 class RegistrationCommands:
     def __init__(
         self,
-        settings: Settings
+        settings: Settings,
+        farms: FarmRepository
     ):
         self.settings = settings
+        self.farms = farms
 
     def register(
         self,
@@ -46,6 +49,7 @@ class RegistrationCommands:
                 "🌱 **Selecione a farm que deseja registrar:**",
                 view=FarmSelectionView(
                     self.settings,
+                    self.farms,
                     interaction.user
                 ),
                 ephemeral=True

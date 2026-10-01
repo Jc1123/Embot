@@ -133,6 +133,35 @@ class Database:
                 mensagem_id,
                 ativo
             );
+
+            CREATE TABLE IF NOT EXISTS farm_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                farm_key TEXT NOT NULL,
+
+                user_id INTEGER NOT NULL,
+
+                user_name TEXT NOT NULL,
+
+                started_at INTEGER NOT NULL,
+
+                ends_at INTEGER NOT NULL,
+
+                CHECK (ends_at > started_at)
+            );
+
+            CREATE INDEX IF NOT EXISTS
+                idx_farm_usage_farm_termino
+            ON farm_usage (
+                farm_key,
+                ends_at
+            );
+
+            CREATE INDEX IF NOT EXISTS
+                idx_farm_usage_termino
+            ON farm_usage (
+                ends_at
+            );
             """
         )
 

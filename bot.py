@@ -3,22 +3,28 @@ import logging
 import discord
 from discord.ext import commands, tasks
 
+from commands.farms import FarmCommands
 from commands.giveaways import GiveawayCommands
+from commands.registration import RegistrationCommands
 from commands.verification import VerificationCommands
 from config.logging_config import configure_logging
 from config.settings import Settings
 from database.connection import Database
+from database.farms import FarmRepository
 from database.giveaways import GiveawayRepository
 from services.giveaway_service import GiveawayService
 from views.giveaway import GiveawayButtonView
 from views.tournament import TournamentView
-from commands.registration import RegistrationCommands
+
 
 logger = logging.getLogger(__name__)
 
 
 class DiscordBot(commands.Bot):
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings
+    ):
         intents = discord.Intents.default()
         intents.members = True
 
@@ -34,17 +40,31 @@ class DiscordBot(commands.Bot):
             settings.database_path
         )
 
+        # -----------------------------------------------------
+        # Sorteios
+        # -----------------------------------------------------
+
         self.giveaways = GiveawayRepository(
             self.database
         )
 
-        # Serviço de sorteios
         self.giveaway_service = GiveawayService(
             self.giveaways,
             self
         )
 
+        # -----------------------------------------------------
+        # Farms
+        # -----------------------------------------------------
+
+        self.farms = FarmRepository(
+            self.database
+        )
+
+        # -----------------------------------------------------
         # Comandos
+        # -----------------------------------------------------
+
         self.giveaway_commands = GiveawayCommands(
             self.giveaways,
             self.giveaway_service
@@ -55,7 +75,13 @@ class DiscordBot(commands.Bot):
         )
 
         self.registration_commands = RegistrationCommands(
-            settings
+            settings,
+            self.farms
+        )
+
+        self.farm_commands = FarmCommands(
+            settings,
+            self.farms
         )
 
         self._persistent_views_registered = False
@@ -63,7 +89,7 @@ class DiscordBot(commands.Bot):
         # Tratamento global de erros dos slash commands
         self.tree.on_error = self.on_app_command_error
 
-        # Intervalo da verificação automática dos sorteios
+        # Intervalo da verificação automática
         self.check_giveaways.change_interval(
             seconds=settings.giveaway_check_interval
         )
@@ -71,7 +97,6 @@ class DiscordBot(commands.Bot):
     async def setup_hook(self) -> None:
         """
         Executado pelo discord.py antes do bot ficar pronto.
-        Inicializa banco, comandos, views persistentes e tarefas.
         """
 
         # Inicializa banco de dados
@@ -84,15 +109,20 @@ class DiscordBot(commands.Bot):
         )
 
         self.registration_commands.register(
-         self.tree
+            self.tree
+        )
+
+        self.farm_commands.register(
+            self.tree
         )
 
         self.giveaway_commands.register(
             self.tree
         )
 
-        # Registra as views persistentes apenas uma vez
+        # Registra views persistentes
         if not self._persistent_views_registered:
+
             self.add_view(
                 TournamentView()
             )
@@ -108,7 +138,7 @@ class DiscordBot(commands.Bot):
         # Sincroniza slash commands
         await self.tree.sync()
 
-        # Inicia verificação automática dos sorteios
+        # Inicia verificação automática
         self.check_giveaways.start()
 
         logger.info(
@@ -117,7 +147,8 @@ class DiscordBot(commands.Bot):
 
     async def close(self) -> None:
         """
-        Fecha corretamente tarefas, banco de dados e conexão com Discord.
+        Fecha corretamente tarefas, banco de dados
+        e conexão com Discord.
         """
 
         if self.check_giveaways.is_running():
@@ -128,13 +159,12 @@ class DiscordBot(commands.Bot):
         await super().close()
 
     async def on_ready(self) -> None:
-        """
-        Executado quando o bot está conectado e pronto.
-        """
 
         if self.user is None:
+
             logger.warning(
-                "Bot conectado, mas o usuário ainda não está disponível."
+                "Bot conectado, mas o usuário ainda "
+                "não está disponível."
             )
             return
 
@@ -148,23 +178,22 @@ class DiscordBot(commands.Bot):
         self,
         member: discord.Member
     ) -> None:
-        """
-        Adiciona automaticamente o cargo de não verificado
-        quando um membro entra no servidor.
-        """
 
         role = member.guild.get_role(
             self.settings.unverified_role_id
         )
 
         if role is None:
+
             logger.warning(
-                "Cargo não verificado não encontrado no servidor %s.",
+                "Cargo não verificado não encontrado "
+                "no servidor %s.",
                 member.guild.id
             )
             return
 
         try:
+
             await member.add_roles(
                 role,
                 reason="Entrada no servidor"
@@ -177,14 +206,18 @@ class DiscordBot(commands.Bot):
             )
 
         except discord.Forbidden:
+
             logger.warning(
-                "Sem permissão para dar cargo não verificado a %s.",
+                "Sem permissão para dar cargo "
+                "não verificado a %s.",
                 member.id
             )
 
         except discord.HTTPException:
+
             logger.exception(
-                "Erro HTTP ao adicionar cargo não verificado a %s.",
+                "Erro HTTP ao adicionar cargo "
+                "não verificado a %s.",
                 member.id
             )
 
@@ -193,9 +226,6 @@ class DiscordBot(commands.Bot):
         interaction: discord.Interaction,
         error: discord.app_commands.AppCommandError
     ) -> None:
-        """
-        Tratamento global de erros dos slash commands.
-        """
 
         logger.error(
             "Erro em slash command: %s",
@@ -215,24 +245,31 @@ class DiscordBot(commands.Bot):
             error,
             discord.app_commands.CommandOnCooldown
         ):
+
             message = (
                 f"⏳ Aguarde "
-                f"{error.retry_after:.1f}s antes de tentar novamente."
+                f"{error.retry_after:.1f}s antes "
+                "de tentar novamente."
             )
 
         try:
+
             if interaction.response.is_done():
+
                 await interaction.followup.send(
                     message,
                     ephemeral=True
                 )
+
             else:
+
                 await interaction.response.send_message(
                     message,
                     ephemeral=True
                 )
 
         except discord.HTTPException:
+
             logger.exception(
                 "Não foi possível enviar a mensagem "
                 "de erro do slash command."
@@ -241,14 +278,44 @@ class DiscordBot(commands.Bot):
     @tasks.loop(seconds=15)
     async def check_giveaways(self) -> None:
         """
-        Verifica periodicamente quais sorteios expiraram.
+        Verifica sorteios expirados e também remove
+        registros de farms cujo horário terminou.
         """
 
         now = int(
             discord.utils.utcnow().timestamp()
         )
 
+        # -----------------------------------------------------
+        # Limpeza das farms
+        # -----------------------------------------------------
+
         try:
+
+            removed_farms = await self.farms.cleanup_expired(
+                now
+            )
+
+            if removed_farms > 0:
+
+                logger.info(
+                    "Removidos %d registro(s) de farm expirado(s).",
+                    removed_farms
+                )
+
+        except Exception:
+
+            logger.exception(
+                "Erro ao limpar registros expirados "
+                "das farms."
+            )
+
+        # -----------------------------------------------------
+        # Sorteios
+        # -----------------------------------------------------
+
+        try:
+
             expired = await self.giveaways.get_expired_ids(
                 now
             )
@@ -262,12 +329,15 @@ class DiscordBot(commands.Bot):
             )
 
             for id_cripto in expired:
+
                 try:
+
                     await self.giveaway_service.finalize(
                         id_cripto
                     )
 
                 except Exception:
+
                     logger.exception(
                         "Erro ao finalizar automaticamente "
                         "o sorteio %s.",
@@ -275,39 +345,37 @@ class DiscordBot(commands.Bot):
                     )
 
         except Exception:
+
             logger.exception(
-                "Erro na rotina de verificação dos sorteios."
+                "Erro na rotina de verificação "
+                "dos sorteios."
             )
 
     @check_giveaways.before_loop
-    async def before_check_giveaways(self) -> None:
-        """
-        Aguarda o bot estar completamente conectado
-        antes de iniciar a verificação dos sorteios.
-        """
+    async def before_check_giveaways(
+        self
+    ) -> None:
 
         await self.wait_until_ready()
 
 
 def main() -> None:
-    """
-    Ponto de entrada do bot.
-    """
 
     configure_logging()
 
     try:
+
         settings = Settings.from_env()
 
     except Exception:
+
         logger.exception(
             "Não foi possível carregar as configurações."
         )
         return
 
-    # Verificação segura do token.
-    # O token NUNCA é exibido no terminal.
     if not settings.discord_token:
+
         logger.critical(
             "DISCORD_TOKEN não foi encontrado."
         )
@@ -327,15 +395,19 @@ def main() -> None:
         "Token do Discord carregado com sucesso."
     )
 
-    bot = DiscordBot(settings)
+    bot = DiscordBot(
+        settings
+    )
 
     try:
+
         bot.run(
             settings.discord_token,
             log_handler=None
         )
 
     except discord.LoginFailure:
+
         logger.critical(
             "Não foi possível autenticar o bot no Discord."
         )
@@ -350,17 +422,20 @@ def main() -> None:
         )
 
     except discord.HTTPException as error:
+
         logger.critical(
             "Erro HTTP ao iniciar o bot: %s",
             error
         )
 
     except KeyboardInterrupt:
+
         logger.info(
             "Bot encerrado manualmente."
         )
 
     except Exception:
+
         logger.exception(
             "Erro inesperado durante a execução do bot."
         )
