@@ -15,7 +15,7 @@ from database.giveaways import GiveawayRepository
 from services.giveaway_service import GiveawayService
 from views.giveaway import GiveawayButtonView
 from views.tournament import TournamentView
-
+from commands.admin import AdminCommands
 
 logger = logging.getLogger(__name__)
 
@@ -70,19 +70,10 @@ class DiscordBot(commands.Bot):
             self.giveaway_service
         )
 
-        self.verification_commands = VerificationCommands(
-            settings
-        )
-
-        self.registration_commands = RegistrationCommands(
-            settings,
-            self.farms
-        )
-
-        self.farm_commands = FarmCommands(
-            settings,
-            self.farms
-        )
+        self.verification_commands = VerificationCommands(settings)
+        self.registration_commands = RegistrationCommands(settings, self.farms)
+        self.farm_commands = FarmCommands(settings, self.farms)
+        self.admin_commands = AdminCommands(self.farms)
 
         self._persistent_views_registered = False
 
@@ -104,21 +95,15 @@ class DiscordBot(commands.Bot):
         await self.database.initialize()
 
         # Registra comandos
-        self.verification_commands.register(
-            self.tree
-        )
+        self.verification_commands.register(self.tree)
 
-        self.registration_commands.register(
-            self.tree
-        )
+        self.registration_commands.register(self.tree)
+        
+        self.farm_commands.register(self.tree)
 
-        self.farm_commands.register(
-            self.tree
-        )
+        self.giveaway_commands.register(self.tree)
 
-        self.giveaway_commands.register(
-            self.tree
-        )
+        self.admin_commands.register(self.tree)
 
         # Registra views persistentes
         if not self._persistent_views_registered:
