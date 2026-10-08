@@ -17,6 +17,7 @@ from views.giveaway import GiveawayButtonView
 from views.tournament import TournamentView
 from commands.admin import AdminCommands
 
+from services.linking_service import LinkingService
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +36,10 @@ class DiscordBot(commands.Bot):
 
         self.settings = settings
 
+        self.linking_service = LinkingService(
+            settings.linking_api_url,
+            settings.linking_api_key
+        )
         # Banco de dados
         self.database = Database(
             settings.database_path
@@ -70,7 +75,11 @@ class DiscordBot(commands.Bot):
             self.giveaway_service
         )
 
-        self.verification_commands = VerificationCommands(settings)
+        self.verification_commands = VerificationCommands(
+           settings,
+           self.linking_service
+        )
+        
         self.registration_commands = RegistrationCommands(settings, self.farms)
         self.farm_commands = FarmCommands(settings, self.farms)
         self.admin_commands = AdminCommands(self.farms)

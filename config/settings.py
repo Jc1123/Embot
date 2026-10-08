@@ -18,6 +18,10 @@ class Settings:
 
     farm_channel_id: int = 1546568509402775716
 
+    # API de vinculação do Embrapa BOT
+    linking_api_url: str = "http://localhost:3000"
+    linking_api_key: str = ""
+
     # Configurações da Farm de Cana de Açúcar
     farm_cana_warp: str = "/go FarmEPA"
     farm_cana_password: str = "kind"
@@ -39,6 +43,21 @@ class Settings:
                 "não foi definida."
             )
 
+        linking_api_url = os.getenv(
+            "LINKING_API_URL",
+            "http://localhost:3000"
+        ).rstrip("/")
+
+        linking_api_key = os.getenv(
+            "LINKING_API_KEY"
+        )
+
+        if not linking_api_key:
+            raise RuntimeError(
+                "A variável de ambiente LINKING_API_KEY "
+                "não foi definida."
+            )
+
         return cls(
             discord_token=token,
             database_path=os.getenv(
@@ -54,6 +73,8 @@ class Settings:
                     )
                 )
             ),
+            linking_api_url=linking_api_url,
+            linking_api_key=linking_api_key,
         )
 
 
@@ -66,6 +87,16 @@ TOURNAMENT_ROLES: dict[str, int] = {
     "Fazendeiro": 1541613451909267497,
     "Slayer": 1541630332087050320,
     "Recruta": 1541613288096407642,
+    "Dorminhoco": 1557281424447373322,
+    "Reação": 1557283014545903697,
+    "Farmer": 1557283249275932753,
+    "Dragão": 1541630338499878994,
+    "Mercador": 1557283751711744010,
+    "Minerador": 1557284207259156560,
+    "Superfã": 1557284157540007996,
+    "Online": 1557283986223534091,
+    "Rasante": 1557284074895446097,
+    "Pedreiro": 1557283939251392533,
 }
 
 

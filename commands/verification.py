@@ -2,15 +2,18 @@ import discord
 from discord import app_commands
 
 from config.settings import Settings
+from services.linking_service import LinkingService
 from views.verification import VerificationModal
 
 
 class VerificationCommands:
     def __init__(
         self,
-        settings: Settings
+        settings: Settings,
+        linking_service: LinkingService
     ):
         self.settings = settings
+        self.linking_service = linking_service
 
     def register(
         self,
@@ -20,8 +23,8 @@ class VerificationCommands:
         @tree.command(
             name="verificar",
             description=(
-                "Inicia sua verificação "
-                "informando seu nick do Minecraft."
+                "Vincula sua conta usando o código "
+                "gerado no Minecraft."
             ),
         )
         @app_commands.guild_only()
@@ -59,6 +62,7 @@ class VerificationCommands:
 
             await interaction.response.send_modal(
                 VerificationModal(
-                    self.settings
+                    self.settings,
+                    self.linking_service
                 )
             )
