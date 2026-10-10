@@ -6,6 +6,7 @@ from discord.ext import commands, tasks
 from commands.farms import FarmCommands
 from commands.giveaways import GiveawayCommands
 from commands.registration import RegistrationCommands
+from commands.tournaments import TournamentCommands
 from commands.verification import VerificationCommands
 from config.logging_config import configure_logging
 from config.settings import Settings
@@ -13,11 +14,11 @@ from database.connection import Database
 from database.farms import FarmRepository
 from database.giveaways import GiveawayRepository
 from services.giveaway_service import GiveawayService
+from services.linking_service import LinkingService
 from views.giveaway import GiveawayButtonView
 from views.tournament import TournamentView
 from commands.admin import AdminCommands
 
-from services.linking_service import LinkingService
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +41,7 @@ class DiscordBot(commands.Bot):
             settings.linking_api_url,
             settings.linking_api_key
         )
+
         # Banco de dados
         self.database = Database(
             settings.database_path
@@ -76,13 +78,31 @@ class DiscordBot(commands.Bot):
         )
 
         self.verification_commands = VerificationCommands(
-           settings,
-           self.linking_service
+            settings,
+            self.linking_service
         )
-        
-        self.registration_commands = RegistrationCommands(settings, self.farms)
-        self.farm_commands = FarmCommands(settings, self.farms)
-        self.admin_commands = AdminCommands(self.farms)
+
+        self.registration_commands = RegistrationCommands(
+            settings,
+            self.farms
+        )
+
+        self.farm_commands = FarmCommands(
+            settings,
+            self.farms
+        )
+
+        self.admin_commands = AdminCommands(
+            self.farms
+        )
+
+        # -----------------------------------------------------
+        # Torneios
+        # -----------------------------------------------------
+
+        self.tournament_commands = TournamentCommands(
+            settings
+        )
 
         self._persistent_views_registered = False
 
@@ -103,18 +123,39 @@ class DiscordBot(commands.Bot):
         await self.database.connect()
         await self.database.initialize()
 
+        # -----------------------------------------------------
         # Registra comandos
-        self.verification_commands.register(self.tree)
+        # -----------------------------------------------------
 
-        self.registration_commands.register(self.tree)
-        
-        self.farm_commands.register(self.tree)
+        self.verification_commands.register(
+            self.tree
+        )
 
-        self.giveaway_commands.register(self.tree)
+        self.registration_commands.register(
+            self.tree
+        )
 
-        self.admin_commands.register(self.tree)
+        self.farm_commands.register(
+            self.tree
+        )
 
+        self.giveaway_commands.register(
+            self.tree
+        )
+
+        self.admin_commands.register(
+            self.tree
+        )
+
+        # Registra comando de torneios
+        self.tournament_commands.register(
+            self.tree
+        )
+
+        # -----------------------------------------------------
         # Registra views persistentes
+        # -----------------------------------------------------
+
         if not self._persistent_views_registered:
 
             self.add_view(
@@ -129,17 +170,20 @@ class DiscordBot(commands.Bot):
 
             self._persistent_views_registered = True
 
+        # -----------------------------------------------------
         # Sincroniza slash commands com o servidor
+        # -----------------------------------------------------
+
         guild = discord.Object(
-        id=1541112966265573376
+            id=1541112966265573376
         )
 
         self.tree.copy_global_to(
-         guild=guild
+            guild=guild
         )
 
         await self.tree.sync(
-          guild=guild
+            guild=guild
         )
 
         # Inicia verificação automática
@@ -170,6 +214,7 @@ class DiscordBot(commands.Bot):
                 "Bot conectado, mas o usuário ainda "
                 "não está disponível."
             )
+
             return
 
         logger.info(
@@ -194,6 +239,7 @@ class DiscordBot(commands.Bot):
                 "no servidor %s.",
                 member.guild.id
             )
+
             return
 
         try:
@@ -376,6 +422,7 @@ def main() -> None:
         logger.exception(
             "Não foi possível carregar as configurações."
         )
+
         return
 
     if not settings.discord_token:
